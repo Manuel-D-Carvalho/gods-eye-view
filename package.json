@@ -33,11 +33,11 @@
   ],
   "scripts": {
     "doctor": "node scripts/setup-doctor.mjs",
-    "dev": "vite",
+    "dev": "node --use-system-ca ./node_modules/vite/bin/vite.js",
     "dev:secure": "./scripts/dev-secure.sh",
     "opensky:import": "./scripts/opensky-import-client.sh",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "node --use-system-ca ./node_modules/vite/bin/vite.js preview",
     "test": "node scripts/run-unit-tests.mjs",
     "test:systems": "node test/all-systems-go.mjs",
     "test:track": "node scripts/track-regression.mjs",

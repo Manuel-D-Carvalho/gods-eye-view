@@ -428,9 +428,24 @@ export function createLocalGeoJsonLayer({
             throw new Error(`HTTP ${response.status ?? '?'}`);
           }
           const text = await response.text();
-          const lines = text.split('\n').filter(l => l.trim().length > 0);
-          
-          const features = lines.map(line => JSON.parse(line));
+          if (text.trim().startsWith('<') || response.headers?.get('content-type')?.includes('text/html')) {
+            throw new Error(`Expected GeoJSON dataset but received HTML (status ${response.status})`);
+          }
+
+          let features = null;
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && Array.isArray(parsed.features)) {
+              features = parsed.features;
+            }
+          } catch {
+            // Not a single JSON FeatureCollection — parse as JSON Lines (.geojsonl)
+          }
+
+          if (!features) {
+            const lines = text.split('\n').filter(l => l.trim().length > 0);
+            features = lines.map(line => JSON.parse(line));
+          }
           
           const geojson = {
             type: 'FeatureCollection',

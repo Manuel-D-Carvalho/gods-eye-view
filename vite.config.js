@@ -8011,6 +8011,7 @@ export default defineConfig(({ mode }) => {
       volcanoesProxy(),
       keySetupEndpoint(),
     ],
+    assetsInclude: ['**/*.geojsonl', '**/*.geojson'],
     server: {
       host: env.HOST || 'localhost',
       port: parseInt(env.PORT, 10) || 4173,
