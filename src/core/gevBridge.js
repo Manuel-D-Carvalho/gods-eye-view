@@ -752,6 +752,35 @@ class GevBridge {
     callback(this.getActiveStyle());
     return () => this._styleListeners.delete(callback);
   }
+
+  // Convenience Aliases
+  subscribeToLayers(callback) {
+    return this.subscribeLayers(callback);
+  }
+
+  flyTo(target) {
+    return this.flyToView(target);
+  }
+
+  nextCctv() {
+    return this.cycleCctvCamera(1);
+  }
+
+  prevCctv() {
+    return this.cycleCctvCamera(-1);
+  }
+
+  subscribeToActiveCctv(callback) {
+    return this.subscribeCctv(callback);
+  }
+
+  subscribeToTrackedItem(callback) {
+    return this.subscribeTrackedItem(callback);
+  }
+
+  subscribeToStyle(callback) {
+    return this.subscribeStyles(callback);
+  }
 }
 
 export const gevBridge = new GevBridge();

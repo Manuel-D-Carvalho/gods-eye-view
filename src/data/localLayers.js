@@ -2,9 +2,8 @@ import { createLocalGeoJsonLayer } from './localGeojson.js';
 import { createFirmsHeatmapLayer } from './firmsHeatmap.js';
 import submarineCablesLayer from './telegeographySubmarineCables.js';
 
-// Use Vite's ?url import to properly resolve these assets in dev and build
-import datacentersUrl from './local_data/datacenters/datacenters.geojsonl?url';
-import damsUrl from './local_data/dams/dams.geojsonl?url';
+const datacentersUrl = new URL('./local_data/datacenters/datacenters.geojsonl', import.meta.url).href;
+const damsUrl = new URL('./local_data/dams/dams.geojsonl', import.meta.url).href;
 
 /**
  * Registry of local GeoJSON datasets.

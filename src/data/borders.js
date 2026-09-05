@@ -6,7 +6,7 @@ import {
   selectEntityContext,
   removeEntityContextsForLayer,
 } from './contextStore.js';
-import countriesGeojson from './local_data/natural_earth/countries.json';
+import countriesGeojson from './local_data/natural_earth/countries.json' with { type: 'json' };
 
 const LAYER_ID = 'borders';
 const ESRI_BOUNDARIES_URL =
@@ -120,7 +120,7 @@ export const bordersLayer = {
           });
         }
 
-        viewer.dataSources.add(state.dataSource);
+        state.viewer?.dataSources?.add(state.dataSource);
         state.lastUpdate = new Date();
       } catch (err) {
         state.error = err?.message || 'Failed to load country borders';
