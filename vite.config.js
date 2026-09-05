@@ -7981,35 +7981,39 @@ export function volcanoesProxy() {
  * streams them with accurate MIME types.
  */
 function localAssetFsProxy() {
-  const MIME_MAP = {
+  const DATA_MIME_MAP = {
     '.geojsonl': 'application/x-ndjson; charset=utf-8',
     '.geojson': 'application/geo+json; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
+    '.ndjson': 'application/x-ndjson; charset=utf-8',
     '.jsonl': 'application/x-ndjson; charset=utf-8',
-    '.csv': 'text/csv; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.webp': 'image/webp',
-    '.txt': 'text/plain; charset=utf-8',
   };
 
   const install = (middlewares) => {
     middlewares.use((req, res, next) => {
       if (!req.url || req.method !== 'GET') return next();
       const urlPath = req.url.split('?')[0];
+      // ONLY intercept data assets that Vite cannot serve natively due to Windows drive stripping.
+      // NEVER intercept .js, .mjs, .css, or any modules which must pass through Vite's transform pipeline!
       if (urlPath.startsWith('/@fs/')) {
         let filePath = decodeURIComponent(urlPath.slice('/@fs/'.length));
         if (/^\/[A-Za-z]:/.test(filePath)) {
           filePath = filePath.slice(1);
         }
+        const ext = path.extname(filePath).toLowerCase();
+        // Crucial: Only handle specific data formats or local_data json/geojsonl files
+        const isLocalData = filePath.includes('local_data');
+        let mime = DATA_MIME_MAP[ext];
+        if (!mime && isLocalData && (ext === '.json' || ext === '.geojson')) {
+          mime = 'application/json; charset=utf-8';
+        }
+        if (!mime) {
+          return next();
+        }
+
         try {
           if (fs.existsSync(filePath)) {
             const stat = fs.statSync(filePath);
             if (stat.isFile()) {
-              const ext = path.extname(filePath).toLowerCase();
-              const mime = MIME_MAP[ext] || 'application/octet-stream';
               res.writeHead(200, {
                 'Content-Type': mime,
                 'Content-Length': stat.size,
