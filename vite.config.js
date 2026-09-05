@@ -43,8 +43,7 @@ import {
 } from './src/data/tomtomTiles.js';
 import { filterTrailing24h, parseFirmsCsv } from './src/data/firmsCsv.js';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite';
 import cesium from 'vite-plugin-cesium';
 import { normalizeRadioCountryInput } from './src/data/radioCountry.js';
 import {
@@ -78,6 +77,14 @@ import { VOICE_MODELS, isKnownVoiceTier, resolveVoiceModel } from './src/voice/v
 
 /** Resolve __dirname for ESM context. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function safeRealpath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 /**
  * Which launcher started this process, captured at MODULE LOAD — before the
@@ -7977,9 +7984,8 @@ export default defineConfig(({ mode }) => {
     if (process.env[key] === undefined) process.env[key] = val;
   }
   const env = { ...process.env };
-  const localAllowedHosts = ['localhost', '127.0.0.1', '.local'];
+  const localAllowedHosts = ['localhost', '127.0.0.1', '.local', '.ts.net'];
   return {
-    root: fs.realpathSync(process.cwd()),
     plugins: [
       cesium(),
       openSkyProxy(),
@@ -8013,6 +8019,12 @@ export default defineConfig(({ mode }) => {
         ? true
         : localAllowedHosts,
       fs: {
+        allow: [
+          searchForWorkspaceRoot(process.cwd()),
+          safeRealpath(process.cwd()),
+          __dirname,
+          safeRealpath(__dirname),
+        ],
         // Pinokio keeps optional credentials in this ignored local file.
         deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/ENVIRONMENT'],
       },
