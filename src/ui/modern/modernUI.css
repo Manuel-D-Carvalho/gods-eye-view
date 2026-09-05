@@ -1147,3 +1147,11 @@
   .views-list-grid { grid-template-columns: 1fr; }
   .modern-item-inspector { width: calc(100vw - 32px); right: 16px; bottom: 16px; }
 }
+
+/* --------------------------------------------------------------------------
+   7. Legacy Chrome Decluttering & Suppression
+   -------------------------------------------------------------------------- */
+#cctv-panel {
+  display: none !important;
+}
+

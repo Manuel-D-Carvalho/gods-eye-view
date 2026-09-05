@@ -228,7 +228,7 @@ export function createFirmsHeatmapLayer({
       installMoveEndWatcher();
       installClickHandler();
       registerPickOwner(id, (pickedId) => _pickIndexById.has(pickedId));
-      if (!_fires.length && !_loading) await loadHeatmap();
+      if (!_fires.length && !_loading && !_keyRequired) await loadHeatmap();
       restoreSpriteOrderOnEnable('firms', viewer);
     },
 
@@ -247,7 +247,7 @@ export function createFirmsHeatmapLayer({
     },
 
     async update() {
-      if (_destroyed || !_enabled || _loading) return;
+      if (_destroyed || !_enabled || _loading || _keyRequired) return;
       // Scheduled 10-minute poll (and the manager's immediate first update):
       // refetch live fires through the proxy and re-render. Viewport-driven
       // re-renders between polls are handled by the LOD watcher.
@@ -428,6 +428,9 @@ export function createFirmsHeatmapLayer({
           payload = await response.json();
         } catch { /* non-JSON error body — fall through to the generic error */ }
         if (response.status === 503 && payload?.error === 'no_key') {
+          if (!_keyRequired) {
+            console.info('[FIRMS] NASA FIRMS active-fire layer requires FIRMS_MAP_KEY — layer idle (set key in Settings to activate).');
+          }
           _keyRequired = true;
           _error = null;
           _stale = false;

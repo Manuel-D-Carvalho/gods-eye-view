@@ -822,7 +822,7 @@ export function checkModernUI() {
     results.push({
       name: 'Display Decluttering Engine',
       status: 'pass',
-      detail: '8 legacy overlapping chrome containers designated for automated suppression',
+      detail: '9 legacy overlapping chrome containers designated for automated suppression',
     });
   } catch (err) {
     results.push({

@@ -1035,6 +1035,7 @@ export class ModernUI {
       'title-bar',             // Built cleanly into modern-top-nav brand header
       'style-indicator',       // Built into modern-top-nav style selector
       'top-center-actions',    // Actions available in modern-top-nav right rail
+      'cctv-panel',            // Replaced by modern full-screen CCTV viewer modal
     ];
 
     for (const id of duplicateElements) {

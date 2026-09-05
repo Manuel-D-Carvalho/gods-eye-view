@@ -4721,13 +4721,16 @@ function cctvProxy() {
             }
           }
 
-          if (!url.pathname.startsWith('/frame/')) {
+          const isFramePath = url.pathname.startsWith('/frame/') || url.pathname === '/frame';
+          if (!isFramePath) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'not found' }));
             return;
           }
 
-          const cameraId = decodeURIComponent(url.pathname.replace('/frame/', '').trim()) || 'camera';
+          const cameraId = (url.pathname.startsWith('/frame/')
+            ? decodeURIComponent(url.pathname.replace('/frame/', '').trim())
+            : (url.searchParams.get('id') || url.searchParams.get('camera') || '').trim()) || 'camera';
           const source = sourceById.get(cameraId);
           const label = url.searchParams.get('label') || source?.name || cameraId;
           const city = url.searchParams.get('city') || source?.city || '';
@@ -7970,6 +7973,71 @@ export function volcanoesProxy() {
 }
 
 /**
+ * Cross-drive asset serving proxy for Windows and local data files.
+ * Vite's internal `serveRawFsMiddleware` has a Windows bug where it strips
+ * the drive letter (`D:`) and serves from the root of the active drive (`C:\`),
+ * causing 404s that fall through to SPA `index.html` (status 200).
+ * This middleware directly intercepts `/@fs/` for local files and
+ * streams them with accurate MIME types.
+ */
+function localAssetFsProxy() {
+  const MIME_MAP = {
+    '.geojsonl': 'application/x-ndjson; charset=utf-8',
+    '.geojson': 'application/geo+json; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.jsonl': 'application/x-ndjson; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.txt': 'text/plain; charset=utf-8',
+  };
+
+  const install = (middlewares) => {
+    middlewares.use((req, res, next) => {
+      if (!req.url || req.method !== 'GET') return next();
+      const urlPath = req.url.split('?')[0];
+      if (urlPath.startsWith('/@fs/')) {
+        let filePath = decodeURIComponent(urlPath.slice('/@fs/'.length));
+        if (/^\/[A-Za-z]:/.test(filePath)) {
+          filePath = filePath.slice(1);
+        }
+        try {
+          if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile()) {
+              const ext = path.extname(filePath).toLowerCase();
+              const mime = MIME_MAP[ext] || 'application/octet-stream';
+              res.writeHead(200, {
+                'Content-Type': mime,
+                'Content-Length': stat.size,
+                'Cache-Control': 'no-cache',
+              });
+              return fs.createReadStream(filePath).pipe(res);
+            }
+          }
+        } catch {
+          // fall through to next middleware
+        }
+      }
+      next();
+    });
+  };
+
+  return {
+    name: 'local-asset-fs-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
+    },
+  };
+}
+
+/**
  * Main Vite configuration factory.
  *
  * Loads .env files via Vite's loadEnv, registers Cesium + local proxy
@@ -7987,6 +8055,7 @@ export default defineConfig(({ mode }) => {
   const localAllowedHosts = ['localhost', '127.0.0.1', '.local', '.ts.net'];
   return {
     plugins: [
+      localAssetFsProxy(),
       cesium(),
       openSkyProxy(),
       celestrakProxy(),
