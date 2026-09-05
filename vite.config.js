@@ -7062,8 +7062,8 @@ export function requiredFiniteQueryNumber(params, key) {
 }
 
 export function validRegionalPoint(params) {
-  const latitude = requiredFiniteQueryNumber(params, 'latitude');
-  const longitude = requiredFiniteQueryNumber(params, 'longitude');
+  const latitude = requiredFiniteQueryNumber(params, 'latitude') ?? requiredFiniteQueryNumber(params, 'lat');
+  const longitude = requiredFiniteQueryNumber(params, 'longitude') ?? requiredFiniteQueryNumber(params, 'lon') ?? requiredFiniteQueryNumber(params, 'lng');
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
   return { latitude, longitude };
@@ -7721,6 +7721,247 @@ function keySetupEndpoint() {
   };
 }
 
+export function geocodeProxy() {
+  function install(middlewares) {
+    middlewares.use('/api/geocode', async (req, res) => {
+      if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Method not allowed', results: [] }));
+        return;
+      }
+      const requestUrl = new URL(req.url || '', 'http://localhost');
+      const query = String(requestUrl.searchParams.get('q') || '').trim();
+      if (!query) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'q is required', results: [] }));
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          format: 'jsonv2',
+          addressdetails: '1',
+          limit: '5',
+          'accept-language': 'en',
+        });
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?${params}`;
+        let response = await fetch(nominatimUrl, {
+          headers: {
+            'User-Agent': 'GodsEyeView/1.0 (+https://github.com/bilawalsidhu/gods-eye-view)',
+            Referer: 'https://github.com/bilawalsidhu/gods-eye-view',
+          },
+        }).catch(() => null);
+
+        let data = response && response.ok ? await response.json().catch(() => null) : null;
+        let results = [];
+
+        if (Array.isArray(data) && data.length > 0) {
+          results = data.map((item) => {
+            const lat = Number(item.lat);
+            const lng = Number(item.lon);
+            const bbox = Array.isArray(item.boundingbox) ? item.boundingbox.map(Number) : null;
+            const viewport = (bbox && bbox.length === 4 && bbox.every(Number.isFinite)) ? {
+              southwest: { lat: bbox[0], lng: bbox[2] },
+              northeast: { lat: bbox[1], lng: bbox[3] },
+            } : null;
+            return {
+              lat,
+              lng,
+              formatted_address: item.display_name,
+              types: [item.type, item.category].filter(Boolean),
+              viewport,
+              geometry: {
+                location: { lat, lng },
+                viewport,
+                bounds: viewport,
+              },
+            };
+          }).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+        }
+
+        if (results.length === 0) {
+          const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`;
+          const photonRes = await fetch(photonUrl).catch(() => null);
+          const photonData = photonRes && photonRes.ok ? await photonRes.json().catch(() => null) : null;
+          if (Array.isArray(photonData?.features)) {
+            results = photonData.features.map((f) => {
+              const coords = f.geometry?.coordinates;
+              const props = f.properties || {};
+              if (!coords || !Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return null;
+              const lng = coords[0];
+              const lat = coords[1];
+              const extent = Array.isArray(props.extent) ? props.extent.map(Number) : null;
+              const viewport = (extent && extent.length === 4 && extent.every(Number.isFinite)) ? {
+                southwest: { lat: extent[3], lng: extent[0] },
+                northeast: { lat: extent[1], lng: extent[2] },
+              } : null;
+              const addressParts = [props.name, props.city, props.state, props.country].filter(Boolean);
+              return {
+                lat,
+                lng,
+                formatted_address: addressParts.join(', ') || props.name || query,
+                types: [props.osm_value, props.osm_key, props.type].filter(Boolean),
+                viewport,
+                geometry: {
+                  location: { lat, lng },
+                  viewport,
+                  bounds: viewport,
+                },
+              };
+            }).filter(Boolean);
+          }
+        }
+
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.end(JSON.stringify({ results }));
+      } catch (err) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ error: err?.message || 'Geocoding failed', results: [] }));
+      }
+    });
+  }
+
+  return {
+    name: 'geocode-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
+    },
+  };
+}
+
+export function volcanoesProxy() {
+  const CACHE_FILE = path.join(process.cwd(), '.gev-cache', 'volcanoes.json');
+  let memoryCache = null;
+  let cacheTime = 0;
+  const TTL_MS = 24 * 60 * 60 * 1000;
+
+  const FALLBACK_VOLCANOES = [
+    { id: 211020, name: 'Mount Etna', lat: 37.748, lon: 14.999, elevation: 3357, type: 'Stratovolcano', country: 'Italy', lastEruption: 2024 },
+    { id: 211010, name: 'Mount Vesuvius', lat: 40.821, lon: 14.426, elevation: 1281, type: 'Stratovolcano', country: 'Italy', lastEruption: 1944 },
+    { id: 211040, name: 'Stromboli', lat: 38.789, lon: 15.213, elevation: 924, type: 'Stratovolcano', country: 'Italy', lastEruption: 2024 },
+    { id: 332010, name: 'Kilauea', lat: 19.421, lon: -155.287, elevation: 1222, type: 'Shield', country: 'United States', lastEruption: 2024 },
+    { id: 332020, name: 'Mauna Loa', lat: 19.475, lon: -155.608, elevation: 4170, type: 'Shield', country: 'United States', lastEruption: 2022 },
+    { id: 321050, name: 'Mount St. Helens', lat: 46.20, lon: -122.18, elevation: 2549, type: 'Stratovolcano', country: 'United States', lastEruption: 2008 },
+    { id: 321030, name: 'Mount Rainier', lat: 46.85, lon: -121.76, elevation: 4392, type: 'Stratovolcano', country: 'United States', lastEruption: 1894 },
+    { id: 283030, name: 'Mount Fuji', lat: 35.361, lon: 138.728, elevation: 3776, type: 'Stratovolcano', country: 'Japan', lastEruption: 1707 },
+    { id: 282080, name: 'Sakurajima', lat: 31.585, lon: 130.657, elevation: 1117, type: 'Stratovolcano', country: 'Japan', lastEruption: 2024 },
+    { id: 261080, name: 'Krakatoa', lat: -6.102, lon: 105.423, elevation: 157, type: 'Caldera', country: 'Indonesia', lastEruption: 2024 },
+    { id: 263250, name: 'Mount Merapi', lat: -7.540, lon: 110.446, elevation: 2910, type: 'Stratovolcano', country: 'Indonesia', lastEruption: 2024 },
+    { id: 341090, name: 'Popocatépetl', lat: 19.023, lon: -98.622, elevation: 5426, type: 'Stratovolcano', country: 'Mexico', lastEruption: 2024 },
+    { id: 341040, name: 'Colima', lat: 19.514, lon: -103.62, elevation: 3850, type: 'Stratovolcano', country: 'Mexico', lastEruption: 2019 },
+    { id: 342090, name: 'Fuego', lat: 14.473, lon: -90.880, elevation: 3763, type: 'Stratovolcano', country: 'Guatemala', lastEruption: 2024 },
+    { id: 372020, name: 'Eyjafjallajökull', lat: 63.63, lon: -19.62, elevation: 1666, type: 'Stratovolcano', country: 'Iceland', lastEruption: 2010 },
+    { id: 372070, name: 'Hekla', lat: 63.98, lon: -19.70, elevation: 1491, type: 'Stratovolcano', country: 'Iceland', lastEruption: 2000 },
+    { id: 372030, name: 'Katla', lat: 63.63, lon: -19.05, elevation: 1512, type: 'Subglacial', country: 'Iceland', lastEruption: 1918 },
+    { id: 371030, name: 'Fagradalsfjall', lat: 63.89, lon: -22.27, elevation: 385, type: 'Fissure vent', country: 'Iceland', lastEruption: 2024 },
+    { id: 223020, name: 'Nyiragongo', lat: -1.52, lon: 29.25, elevation: 3470, type: 'Stratovolcano', country: 'DR Congo', lastEruption: 2021 },
+    { id: 221080, name: 'Erta Ale', lat: 13.60, lon: 40.67, elevation: 613, type: 'Shield', country: 'Ethiopia', lastEruption: 2024 },
+    { id: 273030, name: 'Taal', lat: 14.002, lon: 120.993, elevation: 311, type: 'Caldera', country: 'Philippines', lastEruption: 2024 },
+    { id: 273050, name: 'Mayon', lat: 13.257, lon: 123.685, elevation: 2462, type: 'Stratovolcano', country: 'Philippines', lastEruption: 2024 },
+    { id: 351020, name: 'Cotopaxi', lat: -0.677, lon: -78.436, elevation: 5897, type: 'Stratovolcano', country: 'Ecuador', lastEruption: 2023 },
+    { id: 357120, name: 'Villarrica', lat: -39.42, lon: -71.93, elevation: 2847, type: 'Stratovolcano', country: 'Chile', lastEruption: 2024 },
+    { id: 243040, name: 'Mount Yasur', lat: -19.53, lon: 169.447, elevation: 361, type: 'Stratovolcano', country: 'Vanuatu', lastEruption: 2024 },
+  ];
+
+  function install(middlewares) {
+    middlewares.use('/api/volcanoes', async (req, res) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      const now = Date.now();
+      if (memoryCache && now - cacheTime < TTL_MS) {
+        res.end(memoryCache);
+        return;
+      }
+
+      try {
+        if (fs.existsSync(CACHE_FILE)) {
+          const stat = fs.statSync(CACHE_FILE);
+          if (now - stat.mtimeMs < TTL_MS) {
+            const raw = fs.readFileSync(CACHE_FILE, 'utf8');
+            if (raw.length > 500) {
+              memoryCache = raw;
+              cacheTime = now;
+              res.end(memoryCache);
+              return;
+            }
+          }
+        }
+      } catch {
+        // Disk read failed
+      }
+
+      try {
+        const upstreamUrl = 'https://webservices.volcano.si.edu/geoserver/GVP-VOTW/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=GVP-VOTW:Smithsonian_VOTW_Holocene_Volcanoes&outputFormat=application%2Fjson&maxFeatures=2000';
+        const response = await fetch(upstreamUrl, {
+          headers: { 'User-Agent': 'GodsEyeView/1.0 (+https://github.com/bilawalsidhu/gods-eye-view)' },
+        });
+
+        if (response.ok) {
+          const geojson = await response.json();
+          if (Array.isArray(geojson?.features) && geojson.features.length > 0) {
+            const volcanoes = geojson.features.map((f) => {
+              const coords = f.geometry?.coordinates;
+              const p = f.properties || {};
+              if (!coords || !Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return null;
+              return {
+                id: p.Volcano_Number || f.id,
+                name: p.Volcano_Name || 'Unknown Volcano',
+                lat: coords[1],
+                lon: coords[0],
+                elevation: Number(p.Elevation) || 0,
+                type: p.Primary_Volcano_Type || 'Volcano',
+                country: p.Country || '',
+                region: p.Region || '',
+                subregion: p.Subregion || '',
+                lastEruption: p.Last_Eruption_Year !== undefined ? Number(p.Last_Eruption_Year) : null,
+                photo: p.Primary_Photo_Link || null,
+                photoCredit: p.Primary_Photo_Credit || null,
+                summary: p.Geological_Summary || null,
+              };
+            }).filter(Boolean);
+
+            const jsonStr = JSON.stringify({ count: volcanoes.length, volcanoes });
+            memoryCache = jsonStr;
+            cacheTime = now;
+
+            fsp.mkdir(path.dirname(CACHE_FILE), { recursive: true })
+              .then(() => fsp.writeFile(CACHE_FILE, jsonStr, 'utf8'))
+              .catch(() => {});
+
+            res.end(jsonStr);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[VolcanoesProxy] Upstream fetch failed, falling back to curated list:', err?.message);
+      }
+
+      const fallbackStr = JSON.stringify({ count: FALLBACK_VOLCANOES.length, volcanoes: FALLBACK_VOLCANOES });
+      res.end(fallbackStr);
+    });
+  }
+
+  return {
+    name: 'volcanoes-proxy',
+    configureServer(server) {
+      install(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      install(server.middlewares);
+    },
+  };
+}
+
 /**
  * Main Vite configuration factory.
  *
@@ -7738,6 +7979,7 @@ export default defineConfig(({ mode }) => {
   const env = { ...process.env };
   const localAllowedHosts = ['localhost', '127.0.0.1', '.local'];
   return {
+    root: fs.realpathSync(process.cwd()),
     plugins: [
       cesium(),
       openSkyProxy(),
@@ -7759,6 +8001,8 @@ export default defineConfig(({ mode }) => {
       trackBackfillProxies(),
       openAiRealtimeProxy(),
       googlePlacesContextProxy(),
+      geocodeProxy(),
+      volcanoesProxy(),
       keySetupEndpoint(),
     ],
     server: {

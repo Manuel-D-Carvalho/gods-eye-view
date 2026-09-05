@@ -14,9 +14,16 @@ import bikeshareLayer from './data/bikeshare.js';
 import aisLiveVesselsLayer from './data/aisLiveVessels.js';
 import militaryInstallationsLayer from './data/militaryInstallations.js';
 import militaryAwarenessLayer from './data/militaryAwareness.js';
+import volcanoesLayer from './data/volcanoes.js';
+import poiLayer from './data/poi.js';
+import bordersLayer from './data/borders.js';
+import roadsLayer from './data/roads.js';
 import localDataLayers from './data/localLayers.js';
 import { LAYER_STATE_REGISTRY } from './data/layerState.js';
 import { registerDataCredits } from './data/dataCredits.js';
+import { gevBridge } from './core/gevBridge.js';
+import { modernUI } from './ui/modern/modernUI.js';
+import './ui/modern/modernUI.css';
 import { SceneDirector } from './scenes/director.js';
 import { initGevVoiceCommands } from './voice/gevRealtime.js';
 import { MapStackController } from './mapStackController.js';
@@ -221,6 +228,10 @@ async function init() {
     dataManager.register(militaryInstallationsLayer);
     dataManager.register(militaryAwarenessLayer);
     militaryAwarenessLayer.attachDataManager(dataManager);
+    dataManager.register(volcanoesLayer);
+    dataManager.register(poiLayer);
+    dataManager.register(bordersLayer);
+    dataManager.register(roadsLayer);
     for (const layer of localDataLayers) {
       dataManager.register(layer);
     }
@@ -238,6 +249,10 @@ async function init() {
     }
     dataManager.buildTogglePanel(document.getElementById('data-toggles'));
     styleManager.attachDataManager(dataManager);
+
+    // Initialize decoupled Core Bridge (Interface Fetcher) and Modern Decluttered UI
+    gevBridge.init({ viewer, dataManager, styleManager });
+    modernUI.mount();
 
     // Initialize deterministic scene playback for social clip capture
     const sceneDirector = new SceneDirector(viewer, styleManager, dataManager);
@@ -325,6 +340,8 @@ async function init() {
       cockpitCloudEffects,
       getRenderGovernorDiagnostics,
       requestRender: governorRequestRender,
+      gevBridge,
+      modernUI,
     };
     window.__godsEyeView.voiceCommands = initGevVoiceCommands({ viewer, styleManager, dataManager, sceneDirector, annotations });
 

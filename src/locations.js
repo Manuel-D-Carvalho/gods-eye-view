@@ -346,33 +346,105 @@ export const CANCELLED_SEARCH = Object.freeze({ cancelled: true });
  * appropriate to the request. Countries and cities use their viewport by
  * default; precise landmarks/buildings use close landmark framing.
  */
+/**
+ * Fallback geocoder for keyless environments or when Google geocoder fails.
+ * Queries /api/geocode (server proxy to Nominatim/Photon) or directly queries Photon.
+ */
+export async function fallbackKeylessGeocode(query, viewer) {
+  const q = String(query || '').trim();
+  if (!q) return null;
+
+  // 1. Try local server proxy
+  try {
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.results) && data.results.length > 0) {
+        return data.results[0];
+      }
+    }
+  } catch {
+    // Proxy unavailable or in static/unit-test environment
+  }
+
+  // 2. Direct Photon fetch (CORS-friendly, keyless OSM)
+  try {
+    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=1`);
+    if (res.ok) {
+      const data = await res.json();
+      const feature = data?.features?.[0];
+      const coords = feature?.geometry?.coordinates;
+      if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) {
+        const lng = coords[0];
+        const lat = coords[1];
+        const props = feature.properties || {};
+        const extent = Array.isArray(props.extent) ? props.extent.map(Number) : null;
+        const viewport = (extent && extent.length === 4 && extent.every(Number.isFinite)) ? {
+          southwest: { lat: extent[3], lng: extent[0] },
+          northeast: { lat: extent[1], lng: extent[2] },
+        } : null;
+        const label = [props.name, props.city, props.state, props.country].filter(Boolean).join(', ') || props.name || q;
+        return {
+          lat,
+          lng,
+          formatted_address: label,
+          types: [props.osm_value, props.osm_key, props.type].filter(Boolean),
+          viewport,
+          geometry: {
+            location: { lat, lng },
+            viewport,
+            bounds: viewport,
+          },
+        };
+      }
+    }
+  } catch {
+    // Network offline / abort
+  }
+
+  return null;
+}
+
 export async function searchAndFlyTo(viewer, query, options = {}) {
   const apiKey = window.__GOOGLE_MAPS_API_KEY__ || import.meta.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) throw new Error('No Google Maps API key available for geocoding');
 
   const beforeFly = typeof options.beforeFly === 'function' ? options.beforeFly : null;
   const mayFly = () => beforeFly === null || beforeFly() !== false;
 
-  // Viewport-biased geocode — the same bias annotationResolver's geocodePlace uses:
-  // "Sixth Street" spoken over Austin must prefer the Sixth Street on screen, not a
-  // same-named road in another city (or the wrong end of town — the W 6th vs E 6th bug).
-  let url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
-  const bias = viewportBias(viewer);
-  if (bias) url += `&bounds=${bias}`;
-  const response = await fetch(url);
-  const data = await response.json();
+  let result = null;
 
-  const result = (data.status === 'OK' && data.results?.length) ? data.results[0] : null;
-  let lat = result?.geometry.location.lat;
-  let lng = result?.geometry.location.lng;
-  let label = result ? result.formatted_address : null;
+  if (apiKey) {
+    // Viewport-biased geocode — the same bias annotationResolver's geocodePlace uses:
+    // "Sixth Street" spoken over Austin must prefer the Sixth Street on screen, not a
+    // same-named road in another city (or the wrong end of town — the W 6th vs E 6th bug).
+    let url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`;
+    const bias = viewportBias(viewer);
+    if (bias) url += `&bounds=${bias}`;
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.status === 'OK' && data.results?.length) {
+        result = data.results[0];
+      }
+    } catch {
+      // Fall through to keyless fallback
+    }
+  }
+
+  if (!result) {
+    result = await fallbackKeylessGeocode(query, viewer);
+  }
+
+  let lat = result?.geometry?.location?.lat ?? result?.lat;
+  let lng = result?.geometry?.location?.lng ?? result?.lng;
+  let label = result ? (result.formatted_address || result.label || query) : null;
   let types = result?.types || [];
-  let viewport = result ? (result.geometry.bounds || result.geometry.viewport) : null;
+  let viewport = result ? (result.geometry?.bounds || result.geometry?.viewport || result.viewport) : null;
 
   // Places-near-view recovery (annotationResolver's twin): a missed geocode, or one
   // that landed implausibly far from the view centre, snaps back to a view-biased
   // Places hit within the trust bound — "the Capitol" means the one on screen.
-  const recovered = await placesNearViewRecovery(viewer, query, result ? { lat, lon: lng } : null);
+  const recovered = await placesNearViewRecovery(viewer, query, (lat && lng) ? { lat, lon: lng } : null);
   if (recovered) {
     lat = recovered.lat;
     lng = recovered.lon;
@@ -497,24 +569,51 @@ function placesViewportToBounds(vp) {
  * doc §3) — both frame their geocode viewport instead.
  */
 export function geocodeNavigationMode(types) {
-  const values = new Set(types);
+  const values = new Set((types || []).map((type) => String(type || '').trim().toLowerCase()));
   if (
     values.has('country')
     || values.has('administrative_area_level_1')
     || values.has('administrative_area_level_2')
+    || values.has('state')
+    || values.has('region')
+    || values.has('province')
+    || values.has('canton')
+    || values.has('prefecture')
   ) {
     return 'region-overview';
   }
-  if (values.has('locality') || values.has('postal_town')) return 'city-overview';
+  if (
+    values.has('locality')
+    || values.has('postal_town')
+    || values.has('city')
+    || values.has('town')
+    || values.has('village')
+    || values.has('municipality')
+    || values.has('administrative')
+  ) {
+    return 'city-overview';
+  }
   if (
     values.has('sublocality')
     || values.has('sublocality_level_1')
     || values.has('neighborhood')
+    || values.has('neighbourhood')
+    || values.has('suburb')
+    || values.has('quarter')
     || values.has('postal_code')
   ) {
     return 'neighborhood-close';
   }
-  if (values.has('route') || values.has('intersection')) return 'street-corridor';
+  if (
+    values.has('route')
+    || values.has('intersection')
+    || values.has('highway')
+    || values.has('residential')
+    || values.has('primary')
+    || values.has('secondary')
+  ) {
+    return 'street-corridor';
+  }
   if (
     values.has('park')
     || values.has('natural_feature')
@@ -526,6 +625,13 @@ export function geocodeNavigationMode(types) {
     || values.has('zoo')
     || values.has('cemetery')
     || values.has('shopping_mall')
+    || values.has('volcano')
+    || values.has('peak')
+    || values.has('massif')
+    || values.has('valley')
+    || values.has('forest')
+    || values.has('water')
+    || values.has('lake')
   ) {
     return 'area-overview';
   }

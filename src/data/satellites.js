@@ -2216,7 +2216,7 @@ function _installClickHandler(viewer) {
   _clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   _clickHandler.setInputAction((click) => {
     if (!_enabled) return;
-    const picked = viewer.scene.pick(click.position);
+    const picked = viewer.scene.pick(click.position, 20, 20) || viewer.scene.pick(click.position);
 
     if (picked) {
       // Clicking tracked entity itself — ignore

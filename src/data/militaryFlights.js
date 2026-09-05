@@ -3820,7 +3820,7 @@ function _installClickHandler(viewer) {
     // first-person reference. Empty globe clicks are inert until the user
     // exits with C, Escape, or the dedicated button.
     if (document.body.classList.contains('cockpit-mode')) return;
-    const picked = viewer.scene.pick(click.position);
+    const picked = viewer.scene.pick(click.position, 20, 20) || viewer.scene.pick(click.position);
 
     if (picked) {
       // Clicking the tracked entity itself -- ignore (don't deselect)

@@ -359,7 +359,7 @@ function installInteraction(viewer) {
   state.clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   state.clickHandler.setInputAction((click) => {
     if (!state.enabled) return;
-    const picked = viewer.scene.pick(click.position);
+    const picked = viewer.scene.pick(click.position, 20, 20) || viewer.scene.pick(click.position);
     const id = typeof picked?.id?.id === 'string' ? picked.id.id : null;
     if (id && state.recordById.has(id) && id !== state.selectedId) {
       selectRecord(id);

@@ -4350,7 +4350,7 @@ const cctvLayer = {
     _clickHandler = new Cesium.ScreenSpaceEventHandler(_viewer.scene.canvas);
     bindCctvWorldClickGesture(_clickHandler, (click) => {
       if (!_enabled) return;
-      const picked = _viewer.scene.pick(click.position);
+      const picked = _viewer.scene.pick(click.position, 20, 20) || _viewer.scene.pick(click.position);
       const cameraId = extractPickedCameraId(picked);
       if (cameraId) {
         activateCctvCameraFromWorldClick(cameraId, setActiveCamera);

@@ -1463,7 +1463,7 @@ function bindVesselInteraction(viewer, handler, keyTarget) {
   state.clickHandler = handler;
   handler.setInputAction((click) => {
     if (!state.enabled) return;
-    const picked = viewer.scene.pick(click.position);
+    const picked = viewer.scene.pick(click.position, 20, 20) || viewer.scene.pick(click.position);
     const pickedId = resolvePickId(picked);
     let record = pickedId ? state.vesselMap.get(pickedId) : null;
     const rawId = picked?.id ?? picked?.primitive?.id;

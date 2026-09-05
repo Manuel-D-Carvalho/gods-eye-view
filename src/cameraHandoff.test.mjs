@@ -5,12 +5,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ui = fs.readFileSync(path.join(ROOT, 'src', 'ui.js'), 'utf8');
-const firms = fs.readFileSync(path.join(ROOT, 'src', 'data', 'firmsHeatmap.js'), 'utf8');
-const vessels = fs.readFileSync(path.join(ROOT, 'src', 'data', 'aisLiveVessels.js'), 'utf8');
-const voice = fs.readFileSync(path.join(ROOT, 'src', 'voice', 'gevActions.js'), 'utf8');
-const cameraVerbs = fs.readFileSync(path.join(ROOT, 'src', 'cameraVerbs.js'), 'utf8');
-const cockpitTracking = fs.readFileSync(path.join(ROOT, 'src', 'cockpitTracking.js'), 'utf8');
+const readSource = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
+const ui = readSource('src/ui.js');
+const firms = readSource('src/data/firmsHeatmap.js');
+const vessels = readSource('src/data/aisLiveVessels.js');
+const voice = readSource('src/voice/gevActions.js');
+const cameraVerbs = readSource('src/cameraVerbs.js');
+const cockpitTracking = readSource('src/cockpitTracking.js');
 
 function body(source, pattern, label) {
   const match = source.match(pattern);
