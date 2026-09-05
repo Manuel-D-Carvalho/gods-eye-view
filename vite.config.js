@@ -7986,26 +7986,29 @@ function localAssetFsProxy() {
     '.geojson': 'application/geo+json; charset=utf-8',
     '.ndjson': 'application/x-ndjson; charset=utf-8',
     '.jsonl': 'application/x-ndjson; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8',
   };
 
   const install = (middlewares) => {
     middlewares.use((req, res, next) => {
       if (!req.url || req.method !== 'GET') return next();
+
+      // CRITICAL: Any request with ?import or Sec-Fetch-Dest: script is an ESM module
+      // script that Vite's transform pipeline MUST compile (e.g. countries.json?import).
+      // Never intercept module script imports!
+      if (req.url.includes('?import') || req.headers['sec-fetch-dest'] === 'script') {
+        return next();
+      }
+
       const urlPath = req.url.split('?')[0];
-      // ONLY intercept data assets that Vite cannot serve natively due to Windows drive stripping.
-      // NEVER intercept .js, .mjs, .css, or any modules which must pass through Vite's transform pipeline!
       if (urlPath.startsWith('/@fs/')) {
         let filePath = decodeURIComponent(urlPath.slice('/@fs/'.length));
         if (/^\/[A-Za-z]:/.test(filePath)) {
           filePath = filePath.slice(1);
         }
         const ext = path.extname(filePath).toLowerCase();
-        // Crucial: Only handle specific data formats or local_data json/geojsonl files
-        const isLocalData = filePath.includes('local_data');
-        let mime = DATA_MIME_MAP[ext];
-        if (!mime && isLocalData && (ext === '.json' || ext === '.geojson')) {
-          mime = 'application/json; charset=utf-8';
-        }
+        const mime = DATA_MIME_MAP[ext];
         if (!mime) {
           return next();
         }
